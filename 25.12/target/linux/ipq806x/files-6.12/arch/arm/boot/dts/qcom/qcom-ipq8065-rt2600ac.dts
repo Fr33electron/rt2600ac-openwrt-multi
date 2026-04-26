@@ -1,0 +1,557 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#include "qcom-ipq8065-smb208.dtsi"
+
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+
+/ {
+	model = "Synology RT2600ac";
+	compatible = "synology,rt2600ac", "qcom,ipq8065", "qcom,ipq8064";
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x42000000 0x1e000000>;
+	};
+
+	reserved-memory {
+		rsvd@5fe00000 {
+			reg = <0x5fe00000 0x200000>;
+			reusable;
+		};
+	};
+
+	aliases {
+		mdio-gpio0 = &mdio0;
+		sdcc1 = &sdcc1;
+		sdcc3 = &sdcc3;
+		/*
+		 * Force mmc host indices so eMMC is mmc0 (mmcblk0*) and the
+		 * SD slot is mmc1 (mmcblk1*). Without these the mainline DT
+		 * order makes the SD slot probe first, which would land
+		 * `root=/dev/mmcblk0p5` on the empty SD slot.
+		 */
+		mmc0 = &sdcc1;
+		mmc1 = &sdcc3;
+		serial0 = &gsbi4_serial;
+		label-mac-device = &gmac1;
+
+		led-boot = &status_green;
+		led-failsafe = &status_orange;
+		led-running = &status_green;
+		led-upgrade = &status_orange;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		/*
+		 * rootdelay=5: the lean (non-initramfs) kernel reaches the
+		 * root mount before the regulator framework has finished
+		 * bringing up vsdcc_fixed for the eMMC, so mmci-pl18x bails
+		 * with "no support for card's volts" on the first attempt.
+		 * The delay gives mmc init time to retry once everything is up.
+		 */
+		bootargs = "rootfstype=squashfs,ext4 rootwait noinitrd root=/dev/mmcblk0p7";
+	};
+
+	keys {
+		compatible = "gpio-keys";
+		pinctrl-0 = <&button_pins>;
+		pinctrl-names = "default";
+
+		reset {
+			label = "reset";
+			gpios = <&qcom_pinmux 54 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+			debounce-interval = <60>;
+			wakeup-source;
+		};
+
+		wps {
+			label = "wps";
+			gpios = <&qcom_pinmux 65 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_WPS_BUTTON>;
+			debounce-interval = <60>;
+			wakeup-source;
+		};
+
+		wifi {
+			label = "wifi";
+			gpios = <&qcom_pinmux 53 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RFKILL>;
+			debounce-interval = <60>;
+			wakeup-source;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		pinctrl-0 = <&led_pins>;
+		pinctrl-names = "default";
+
+		/*
+		 * GPIO assignments verified on unit 2 by reading Synology's
+		 * device tree. Unit 1's reverse-engineered DTS had these wrong.
+		 */
+		status_orange: status_orange {
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_AMBER>;
+			gpios = <&qcom_pinmux 6 GPIO_ACTIVE_LOW>;
+		};
+
+		status_green: status_green {
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_GREEN>;
+			gpios = <&qcom_pinmux 7 GPIO_ACTIVE_LOW>;
+		};
+
+		external_storage_green {
+			label = "green:external_storage";
+			gpios = <&qcom_pinmux 8 GPIO_ACTIVE_LOW>;
+		};
+
+		external_storage_orange {
+			label = "amber:external_storage";
+			gpios = <&qcom_pinmux 9 GPIO_ACTIVE_LOW>;
+		};
+
+		wps {
+			function = LED_FUNCTION_WPS;
+			color = <LED_COLOR_ID_GREEN>;
+			gpios = <&qcom_pinmux 26 GPIO_ACTIVE_LOW>;
+		};
+	};
+};
+
+&qcom_pinmux {
+	button_pins: button_pins {
+		mux {
+			pins = "gpio53", "gpio54", "gpio65";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
+	led_pins: led_pins {
+		mux {
+			pins = "gpio6", "gpio7", "gpio8", "gpio9",
+			       "gpio24", "gpio25", "gpio26";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
+	mdio0_pins: mdio0-state {
+		/delete-property/ pins;
+		/delete-property/ function;
+		/delete-property/ drive-strength;
+		/delete-property/ bias-disable;
+
+		mux {
+			pins = "gpio0", "gpio1";
+			function = "mdio";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		clk {
+			pins = "gpio1";
+			input-disable;
+		};
+	};
+
+	rgmii2_pins: rgmii2-state {
+		/delete-property/ pins;
+		/delete-property/ function;
+		/delete-property/ drive-strength;
+		/delete-property/ bias-disable;
+
+		mux {
+			pins = "gpio27", "gpio28", "gpio29",
+			       "gpio30", "gpio31", "gpio32",
+			       "gpio51", "gpio52", "gpio59",
+			       "gpio60", "gpio61", "gpio62";
+			function = "rgmii2";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		tx {
+			pins = "gpio27", "gpio28", "gpio29",
+			       "gpio30", "gpio31", "gpio32";
+			input-disable;
+		};
+	};
+
+	sdcc3_pins: sdcc3-state {
+		clk {
+			pins = "sdc3_clk";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		cmd {
+			pins = "sdc3_cmd";
+			drive-strength = <8>;
+			bias-pull-up;
+		};
+
+		data {
+			pins = "sdc3_data";
+			drive-strength = <8>;
+			bias-pull-up;
+		};
+	};
+
+	sdcc3_cd_pins: sdcc3-cd-state {
+		mux {
+			pins = "gpio63";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
+	spi_pins: spi-state {
+		/delete-property/ pins;
+		/delete-property/ function;
+		/delete-property/ drive-strength;
+		/delete-property/ bias-disable;
+
+		mux {
+			pins = "gpio18", "gpio19", "gpio21";
+			function = "gsbi5";
+			bias-pull-down;
+		};
+
+		data {
+			pins = "gpio18", "gpio19";
+			drive-strength = <10>;
+		};
+
+		cs {
+			pins = "gpio20";
+			drive-strength = <10>;
+			bias-pull-up;
+		};
+
+		clk {
+			pins = "gpio21";
+			drive-strength = <12>;
+		};
+	};
+
+	usb0_pwr_en_pins: usb0-pwr-en-state {
+		mux {
+			pins = "gpio16", "gpio17";
+			function = "gpio";
+			drive-strength = <12>;
+		};
+
+		pwr {
+			pins = "gpio17";
+			bias-pull-down;
+			output-high;
+		};
+
+		ovc {
+			pins = "gpio16";
+			bias-pull-up;
+		};
+	};
+
+	usb1_pwr_en_pins: usb1-pwr-en-state {
+		mux {
+			pins = "gpio14", "gpio15";
+			function = "gpio";
+			drive-strength = <12>;
+		};
+
+		pwr {
+			pins = "gpio14";
+			bias-pull-down;
+			output-high;
+		};
+
+		ovc {
+			pins = "gpio15";
+			bias-pull-up;
+		};
+	};
+};
+
+&gsbi4_serial {
+	status = "okay";
+};
+
+&gsbi5 {
+	qcom,mode = <GSBI_PROT_SPI>;
+	status = "okay";
+
+	spi@1a280000 {
+		status = "okay";
+		pinctrl-0 = <&spi_pins>;
+		pinctrl-names = "default";
+		cs-gpios = <&qcom_pinmux 20 GPIO_ACTIVE_HIGH>;
+
+		flash@0 {
+			compatible = "mx25u6435f", "jedec,spi-nor";
+			reg = <0>;
+			spi-max-frequency = <51200000>;
+
+			/*
+			 * Synology uses SMEM partitions on SPI NOR; U-Boot
+			 * populates the partition layout into shared memory
+			 * at boot time, and Linux picks it up here.
+			 */
+			partitions {
+				compatible = "qcom,smem-part";
+			};
+		};
+	};
+};
+
+&mdio0 {
+	status = "okay";
+
+	pinctrl-0 = <&mdio0_pins>;
+	pinctrl-names = "default";
+
+	switch@10 {
+		compatible = "qca,qca8337";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <0x10>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				label = "cpu";
+				ethernet = <&gmac1>;
+				phy-mode = "rgmii";
+				tx-internal-delay-ps = <1000>;
+				rx-internal-delay-ps = <1000>;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+				};
+			};
+
+			/*
+			 * Port labels are a BEST GUESS based on typical
+			 * IPQ806x+QCA8337 boards. Synology's NSS-driven SRM
+			 * stack doesn't expose a standard DSA-style port map.
+			 * Will be corrected empirically after first OpenWrt
+			 * boot by plugging a cable into each physical jack
+			 * and watching link state.
+			 */
+			port@1 {
+				reg = <1>;
+				label = "lan4";
+				phy-mode = "internal";
+				phy-handle = <&phy_port1>;
+			};
+
+			port@2 {
+				reg = <2>;
+				label = "lan3";
+				phy-mode = "internal";
+				phy-handle = <&phy_port2>;
+			};
+
+			port@3 {
+				reg = <3>;
+				label = "lan2";
+				phy-mode = "internal";
+				phy-handle = <&phy_port3>;
+			};
+
+			port@4 {
+				reg = <4>;
+				label = "lan1";
+				phy-mode = "internal";
+				phy-handle = <&phy_port4>;
+			};
+
+			port@5 {
+				reg = <5>;
+				label = "wan";
+				phy-mode = "internal";
+				phy-handle = <&phy_port5>;
+			};
+
+			port@6 {
+				reg = <6>;
+				label = "cpu";
+				ethernet = <&gmac2>;
+				phy-mode = "sgmii";
+				qca,sgmii-enable-pll;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+				};
+			};
+		};
+
+		mdio {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			phy_port1: phy@0 { reg = <0>; };
+			phy_port2: phy@1 { reg = <1>; };
+			phy_port3: phy@2 { reg = <2>; };
+			phy_port4: phy@3 { reg = <3>; };
+			phy_port5: phy@4 { reg = <4>; };
+		};
+	};
+};
+
+&gmac1 {
+	status = "okay";
+
+	phy-mode = "rgmii";
+	qcom,id = <1>;
+	qcom,phy_mdio_addr = <4>;
+	qcom,poll_required = <0>;
+	qcom,rgmii_delay = <1>;
+	qcom,phy_mii_type = <0>;
+	qcom,emulation = <0>;
+	qcom,irq = <255>;
+	mdiobus = <&mdio0>;
+
+	pinctrl-0 = <&rgmii2_pins>;
+	pinctrl-names = "default";
+
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+	};
+};
+
+&gmac2 {
+	status = "okay";
+
+	phy-mode = "sgmii";
+	qcom,id = <2>;
+	qcom,phy_mdio_addr = <0>;
+	qcom,poll_required = <0>;
+	qcom,rgmii_delay = <0>;
+	qcom,phy_mii_type = <1>;
+	qcom,emulation = <0>;
+	qcom,irq = <258>;
+	mdiobus = <&mdio0>;
+
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+	};
+};
+
+&adm_dma {
+	status = "okay";
+};
+
+&hs_phy_0 {
+	status = "okay";
+};
+
+&ss_phy_0 {
+	status = "okay";
+};
+
+&usb3_0 {
+	status = "okay";
+
+	pinctrl-0 = <&usb0_pwr_en_pins>;
+	pinctrl-names = "default";
+};
+
+&hs_phy_1 {
+	status = "okay";
+};
+
+&ss_phy_1 {
+	status = "okay";
+};
+
+&usb3_1 {
+	status = "okay";
+
+	pinctrl-0 = <&usb1_pwr_en_pins>;
+	pinctrl-names = "default";
+};
+
+&sdcc1 {
+	/*
+	 * eMMC at 0x12400000 has a probe-ordering race with the IPQ806x
+	 * regulator framework on the lean kernel: mmci-pl18x reaches
+	 * voltage init before vsdcc_fixed is registered, so it bails with
+	 * "no support for card's volts" and the controller wedges in a
+	 * "Card stuck being busy" retry loop that blocks USB enumeration.
+	 * Since this device boots from USB (root=/dev/mmcblk0p7), we don't
+	 * need the eMMC; disable the node to skip the broken probe path.
+	 * If a future kernel/regulator fix makes this unnecessary, set
+	 * status = "okay" again.
+	 */
+	status = "okay";
+};
+
+/*
+ * SD card slot on the back of the router. The controller is already
+ * defined as `sdcc3: mmc@12180000` in mainline qcom-ipq8064.dtsi with
+ * status = "disabled"; we reference and override the parts that are
+ * board-specific.
+ *
+ * Verified on running Synology SRM 1.2.5 on unit 2:
+ *   cd-gpios = pin 63, ACTIVE_LOW, cd-inverted
+ *   bus-width = 4 (override of mainline default 8)
+ *   max-frequency = 192 MHz (UHS-I SDR104, matches mainline default)
+ */
+&sdcc3 {
+	status = "okay";
+	bus-width = <4>;
+
+	cd-gpios = <&qcom_pinmux 63 GPIO_ACTIVE_LOW>;
+	cd-inverted;
+
+	pinctrl-0 = <&sdcc3_pins &sdcc3_cd_pins>;
+	pinctrl-names = "default";
+};
+
+&pcie0 {
+	status = "okay";
+};
+
+&pcie_bridge0 {
+	wifi0: wifi@0,0 {
+		compatible = "qcom,ath10k";
+		reg = <0x00010000 0 0 0 0>;
+		/*
+		 * No nvmem-cells for MAC/precal here — Synology's ART
+		 * partition uses a non-standard 30976-byte layout that
+		 * upstream ath10k doesn't parse directly (expects 12064).
+		 * We rely on OpenWrt's ath10k-caldata hotplug handler to
+		 * extract and massage the data at runtime.
+		 */
+	};
+};
+
+&pcie1 {
+	status = "okay";
+
+	max-link-speed = <1>;
+};
+
+&pcie_bridge1 {
+	wifi1: wifi@0,0 {
+		compatible = "qcom,ath10k";
+		reg = <0x00010000 0 0 0 0>;
+	};
+};

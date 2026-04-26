@@ -1,0 +1,14 @@
+# Built images and partition snapshots (rebuild from source — see BUILD.md)
+*.bin
+*.img
+*.squashfs
+
+# Backup directory (large eMMC partition dumps)
+backups/
+
+# Editor + OS noise
+*.swp
+*~
+.DS_Store
+__pycache__/
+*.pyc

@@ -1,0 +1,28 @@
+From 57507090b2bd11218274ce4b63bea7d69c48042e Mon Sep 17 00:00:00 2001
+From: Bisect Local <bisect@local>
+Date: Sat, 25 Apr 2026 13:14:23 -0500
+Subject: [PATCH 991/993] Revert "regulator: core: fix the broken behavior of
+ regulator_dev_lookup()"
+
+This reverts commit a1d12410d9b1ecff87d39f80b0d1cec895012ffa.
+---
+ drivers/regulator/core.c | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/drivers/regulator/core.c b/drivers/regulator/core.c
+index 1179766811f5..d60c86477ac2 100644
+--- a/drivers/regulator/core.c
++++ b/drivers/regulator/core.c
+@@ -1965,9 +1965,6 @@ static struct regulator_dev *regulator_dev_lookup(struct device *dev,
+ 			return r;
+ 		if (PTR_ERR(r) == -EPROBE_DEFER)
+ 			return r;
+-
+-		if (PTR_ERR(r) == -ENODEV)
+-			r = NULL;
+ 	}
+ 
+ 	/* if not found, try doing it non-dt way */
+-- 
+2.47.3
+

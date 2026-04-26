@@ -1,0 +1,20 @@
+#!/bin/sh
+. /lib/functions.sh
+. /lib/functions/system.sh
+
+[ "$(board_name)" = "synology,rt2600ac" ] || exit 0
+
+lan_mac=$(mtd_get_mac_binary 0:vendorpart 0xd0)
+[ -n "$lan_mac" ] || exit 0
+wan_mac=$(macaddr_add "$lan_mac" 1)
+
+uci -q batch <<EOF
+set network.@device[0].macaddr='$lan_mac'
+delete network.wan_dev
+set network.wan_dev=device
+set network.wan_dev.name='wan'
+set network.wan_dev.macaddr='$wan_mac'
+commit network
+EOF
+
+exit 0

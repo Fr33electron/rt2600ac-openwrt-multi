@@ -1,0 +1,13 @@
+config global
+	option anon_swap '0'
+	option anon_mount '0'
+	option auto_swap '1'
+	option auto_mount '1'
+	option delay_root '5'
+	option check_fs '0'
+
+config mount
+	option target '/overlay'
+	option uuid 'e88f327d-40e6-4fe7-94bf-8df9e7bb7fbf'
+	option fstype 'ext4'
+	option enabled '1'

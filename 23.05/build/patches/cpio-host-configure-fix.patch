@@ -1,0 +1,8 @@
+Subject: Documentation-only recreation of the host cpio fix used during the RT2600ac build
+
+The original standalone patch file used during the live Debian 13 build session was not preserved
+in the OpenWrt tree. This file records that a host-side cpio configure/build compatibility fix was
+required alongside the ninja Python 3.13 patch during the first successful build bring-up.
+
+Treat this as an audit note, not as an authoritative upstream patch.
+
