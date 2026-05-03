@@ -1,0 +1,59 @@
+From: <author>
+Subject: [PATCH] net: usb: usbnet: defensively handle NULL dev_addr at probe
+
+On some devices the early MAC-address copy in usbnet_probe() reaches
+its `memcpy(net->dev_addr, node_id, ...)` call with `net->dev_addr ==
+NULL`.  The unguarded write produces an oops (NULL pointer
+dereference) in `usbnet_probe()` that the watchdog turns into a hard
+reboot before any console output is recorded.
+
+This was first observed with a Google Pixel 9 Pro
+(0x18d1:0x4eec) in NCM tethering mode on a Synology RT2600ac running
+OpenWrt 23.05.3 (kernel 5.15.150).  Each time the phone exposed its
+NCM interfaces (intf class 0x02 subclass 0x0d + class 0x0a), the host
+crashed before `cdc_ncm_bind_common()` could run.  The faulting
+instruction:
+
+  PC is at usbnet_probe+0x2ac/0x848 [usbnet]
+  Code: ... ldr r2, [r4, #520] ... str r0, [r2]
+                                    ^ NULL pointer write
+
+The exact root cause of `dev_addr` being unset after a successful
+`alloc_etherdev()` is a kernel-internal state issue (likely race or
+config-dependent layout interaction).  Rather than crash, fall back
+safely: skip the initial node_id memcpy.  The driver's `info->bind()`
+hook (cdc_ncm_bind_common in the Pixel case) sets the MAC from device
+descriptors anyway, and `register_netdev()` later randomises any
+remaining unset address.
+
+After this patch the Pixel 9 Pro tether enumerates cleanly:
+
+  cdc_ncm 3-1.4:1.1: MAC-Address: 1a:74:26:25:a3:63
+  cdc_ncm 3-1.4:1.1 usb0: register 'cdc_ncm' at usb-..., CDC NCM
+
+Signed-off-by: <author>
+---
+ drivers/net/usb/usbnet.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+--- a/drivers/net/usb/usbnet.c
++++ b/drivers/net/usb/usbnet.c
+@@ -1727,7 +1727,16 @@ usbnet_probe (struct usb_interface *udev
+
+ 	dev->net = net;
+ 	strscpy(net->name, "usb%d", sizeof(net->name));
+-	memcpy (net->dev_addr, node_id, sizeof node_id);
++	if (net->dev_addr) {
++		memcpy ((void *)net->dev_addr, node_id, sizeof node_id);
++	} else {
++		/* alloc_etherdev() left dev_addr unset on some hardware
++		 * (observed with Pixel-class NCM devices).  Avoid the NULL
++		 * deref crash — bind() will override the MAC from device
++		 * descriptors, or register_netdev() will assign a random
++		 * one with NET_ADDR_RANDOM later.
++		 */
++		netdev_warn(net, "usbnet: dev_addr NULL after alloc; will randomize\n");
++	}
+
+ 	/* rx and tx sides can use different message sizes;
+ 	 * bind() should set rx_urb_size in that case.
