@@ -51,7 +51,7 @@
 		 * with "no support for card's volts" on the first attempt.
 		 * The delay gives mmc init time to retry once everything is up.
 		 */
-		bootargs = "rootfstype=squashfs,ext4 rootwait noinitrd root=/dev/mmcblk0p7";
+		bootargs = "rootfstype=squashfs,ext4 rootwait noinitrd root=/dev/mmcblk0p5";
 	};
 
 	keys {
@@ -495,7 +495,7 @@
 	 * voltage init before vsdcc_fixed is registered, so it bails with
 	 * "no support for card's volts" and the controller wedges in a
 	 * "Card stuck being busy" retry loop that blocks USB enumeration.
-	 * Since this device boots from USB (root=/dev/mmcblk0p7), we don't
+	 * Since this device boots from USB (root=/dev/mmcblk0p5), we don't
 	 * need the eMMC; disable the node to skip the broken probe path.
 	 * If a future kernel/regulator fix makes this unnecessary, set
 	 * status = "okay" again.

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Capture the flashed (router) config as the canonical baseline + wire up uplink-guard.
+MODEDIR=/etc/unit2-modes
+mkdir -p "$MODEDIR/router"
+for f in network firewall dhcp wireless; do cp "/etc/config/$f" "$MODEDIR/router/$f" 2>/dev/null; done
+[ -f "$MODEDIR/.current" ] || echo router > "$MODEDIR/.current"
+# uplink-guard cron (guard is mode-aware; only acts in router mode)
+grep -q uplink-guard /etc/crontabs/root 2>/dev/null || echo '*/3 * * * * /usr/bin/uplink-guard.sh' >> /etc/crontabs/root
+/etc/init.d/cron enable 2>/dev/null; /etc/init.d/cron restart 2>/dev/null
+exit 0

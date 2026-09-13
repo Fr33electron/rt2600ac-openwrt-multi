@@ -1,0 +1,90 @@
+#!/bin/sh
+# unit2-mode {router | bridge [wired|wifi] | status | revert}
+# Switch fr33positron between full-router (B) and bridged-AP (A). Self-reverts on lost uplink.
+MODEDIR=/etc/unit2-modes; BASE=$MODEDIR/router; STATE=$MODEDIR/.current; SUBF=$MODEDIR/.bridge_sub
+CFG=/etc/config; HEALTH=1.1.1.1
+log(){ logger -t unit2-mode "$*"; echo "unit2-mode: $*"; }
+have_base(){ [ -f "$BASE/network" ] && [ -f "$BASE/wireless" ]; }
+reload_all(){
+  uci commit
+  /etc/init.d/network reload >/dev/null 2>&1; sleep 3
+  wifi reload >/dev/null 2>&1; sleep 2
+  /etc/init.d/firewall restart >/dev/null 2>&1
+  /etc/init.d/dnsmasq restart >/dev/null 2>&1
+  /etc/init.d/relayd restart >/dev/null 2>&1
+}
+healthy(){ ping -c2 -W3 "$HEALTH" >/dev/null 2>&1 || ping -c2 -W3 10.42.0.1 >/dev/null 2>&1; }
+restore_router(){ cp "$BASE"/network "$BASE"/firewall "$BASE"/dhcp "$BASE"/wireless "$CFG"/ 2>/dev/null; }
+
+set_router(){
+  restore_router
+  echo router > "$STATE"; rm -f "$SUBF"
+  reload_all
+  log "mode=router applied"
+}
+
+set_bridge(){
+  sub="${1:-auto}"
+  [ "$sub" = auto ] && { [ "$(cat /sys/class/net/wan/carrier 2>/dev/null)" = 1 ] && sub=wired || sub=wifi; }
+  restore_router                      # start from known-good baseline, then transform
+  # --- common bridge deltas: no local DHCP server, no NAT, mgmt via DHCP client ---
+  uci -q set dhcp.lan.ignore=1
+  uci -q set network.lan.proto=dhcp
+  uci -q delete network.lan.ipaddr;  uci -q delete network.lan.netmask
+  uci -q delete network.labpeer      # unit-1 owns routing now
+  # firewall -> single trusted lan zone, no masq/forwarding
+  uci -q set firewall.@zone[1].masq=0
+  while uci -q delete firewall.@forwarding[0] 2>/dev/null; do :; done
+  uci -q set firewall.@zone[0].input=ACCEPT; uci -q set firewall.@zone[0].forward=ACCEPT
+  if [ "$sub" = wired ]; then
+    uci -q add_list network.@device[0].ports=wan          # wan port -> into br-lan (L2 backhaul)
+    uci -q delete network.wan; uci -q delete network.wan6
+    for s in sta_u1 sta_att5 sta_att sta_att24 sta_xfin sta_wwan; do uci -q set wireless.$s.disabled=1; done
+    uci -q set wireless.default_radio0.disabled=0
+    uci -q set wireless.default_radio1.disabled=0         # both radios serve clients (true L2)
+    uci -q delete network.wwan5 2>/dev/null
+  else                                                     # wifi via relayd pseudobridge
+    uci -q set wireless.sta_u1.disabled=0
+    for s in sta_att5 sta_att sta_att24 sta_xfin sta_wwan; do uci -q set wireless.$s.disabled=1; done
+    uci -q set wireless.default_radio0.disabled=0          # 2.4 AP for clients
+    uci -q set wireless.default_radio1.disabled=1          # 5G consumed by the STA uplink
+    uci -q set wireless.sta_u1.network=wwan5
+    uci -q set network.wwan5.proto=dhcp
+    # relayd: L3 bridge between br-lan (AP side) and wwan5 (uplink to unit-1)
+    uci -q delete relayd 2>/dev/null; touch $CFG/relayd
+    uci -q set relayd.rd=relayd; uci -q set relayd.rd.network='lan wwan5'
+    uci -q set relayd.rd.dhcp_server=0
+    uci -q add_list firewall.@zone[1].network=wwan5 2>/dev/null
+  fi
+  echo bridge > "$STATE"; echo "$sub" > "$SUBF"
+  reload_all
+  log "mode=bridge/$sub applied"
+}
+
+# --- switch with self-revert ---
+prev="$(cat "$STATE" 2>/dev/null)"; prevsub="$(cat "$SUBF" 2>/dev/null)"
+switch(){
+  target="$1"; sub="$2"
+  case "$target" in
+    router) set_router ;;
+    bridge) set_bridge "$sub" ;;
+    *) echo "usage: unit2-mode {router|bridge [wired|wifi]|status|revert}"; exit 1 ;;
+  esac
+  log "verifying connectivity..."; sleep 12
+  if healthy; then log "OK ($target${sub:+/$sub}) reachable"; return 0; fi
+  log "NO connectivity after switch -> reverting to ${prev:-router}"
+  case "${prev:-router}" in router) set_router ;; bridge) set_bridge "$prevsub" ;; esac
+  return 1
+}
+
+case "$1" in
+  router) switch router ;;
+  bridge) switch bridge "$2" ;;
+  revert) switch "${prev:-router}" "$prevsub" ;;
+  status|"")
+     echo "current mode : $(cat "$STATE" 2>/dev/null || echo unknown)$( [ -f "$SUBF" ] && echo "/$(cat "$SUBF")")"
+     echo "baseline snap: $(have_base && echo present || echo MISSING)"
+     echo "default route: $(ip route | grep '^default' | head -1)"
+     echo "internet     : $(healthy && echo OK || echo DOWN)" ;;
+  *) echo "usage: unit2-mode {router|bridge [wired|wifi]|status|revert}"; exit 1 ;;
+esac

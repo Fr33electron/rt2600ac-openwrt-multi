@@ -52,3 +52,13 @@ This archive captures a working OpenWrt 25.12.2 port to the Synology RT2600ac, c
 - [`files/etc/`](./files/) — base-files overlay (MAC fix triad + fstab default)
 - [`scripts/`](./scripts/) — U-Boot, serial, stress, recovery test scripts
 - backup of running p3 + p7 (`dd` images) lives outside the repo — rebuild from source per BUILD.md
+
+## 2026-09-13 — p5 convergence + feature rebuild
+
+Converged unit-2 to unit-1's partition layout and added QoS + bridge/mode tooling.
+
+- **Boot layout:** kernel on `mmcblk0p1` (formatted **ext2** — U-Boot 2012.07 has no ext4load), rootfs squashfs on `mmcblk0p5` (`root=/dev/mmcblk0p5`, DTS). `p3`/`p7` kept as automatic fallback. Persisted env: `bootcmd='run bootp1; run bootemmc'`, `bootp1='mmc rescan; ext2load mmc 0:1 0x44000000 zImage; bootm 0x44000000'`.
+- **Added packages** (`config-p5.diffconfig`): sqm-scripts + luci-app-sqm + kmod-sched-cake, relayd + luci-proto-relay, kmod-batman-adv + batctl-default (dormant), wpad-mesh-mbedtls (from wpad-basic), microsocks, full LuCI + luci-ssl.
+- **`unit2-mode {router|bridge [wired|wifi]|status}`** (`files/usr/bin/unit2-mode`): switch between full multi-WAN router and bridged-AP (auto-detects wired vs wireless/relayd backhaul), self-reverts on lost uplink. First-boot `uci-defaults/99-unit2-mode` snapshots the router config as the baseline.
+- **`uplink-guard.sh`** (cron `*/3`, mode-aware): automated WAN failover across the STA roster.
+- **Flash** (sysupgrade is broken on this device — image-metadata mismatch, unrelated to slots): `scripts/unit2_p5_flash_A.py` (TFTP initramfs + SCP + write p1/p5 + test-boot) then `unit2_p5_flash_B.py` (persist env). Env vars: `SERIAL`, `SIGLENT`, `TFTP_SERVER`, `ROUTER`, `UNIT2_ROOT_PW`.
