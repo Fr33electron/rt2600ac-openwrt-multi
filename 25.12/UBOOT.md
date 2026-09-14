@@ -14,15 +14,11 @@ The U-Boot prompt is `(IPQ) #`.
 - `rload=0x46000000` — ramdisk (unused on this build)
 - `dload=0x48000000` — DTB (unused on this build — see "Why single-arg `bootm`")
 
-## Boot envs (final saved values)
+## Boot envs (verified current layout)
 
-```text
-bootcmd=run bootemmc || run bootmmc
-bootemmc=mmc rescan; ext2load mmc 0:3 $kload zImage; bootm $kload
-bootmmc=mmc rescan; ext2load mmc 0:1 $kload zImage; bootm $kload
-```
+> **CORRECTION (2026-09-13):** the p3-first sequence and p7 primary root shown in earlier versions are **superseded**. Verified current layout: **p1/p5 primary, p3/p7 recovery** (recovery forces a RAM overlay, no automatic p5/p6 mounts). Boot policy = a **single MMC rescan**, then an inline guarded load of primary **p1/p5**, falling through to recovery **p3/p7** on failure. Automatic fallback was verified using a deliberately missing primary filename in RAM. Primary and recovery each separately passed unattended warm and cold boots. The authoritative environment is written to `0:appsblenv` (mtd9) via **Linux NOR writes** and kept privately; **never `saveenv`** on this board (found to leave a damaged / non-persisting env). Primary loads via single-arg `bootm` (appended DTB), `bootp1` -> `mmc 0:1`.
 
-The chain in `bootcmd` makes failover automatic: if `bootemmc` fails (file unreadable or `bootm` rejects the image), U-Boot falls through to `bootmmc` and tries the recovery slot. **Caveat**: this only works for failures U-Boot can detect — a kernel that boots part-way and then panics on rootfs mount is not a U-Boot-visible failure, so the chain won't catch it. See TROUBLESHOOTING.md.
+Failover is automatic only for failures U-Boot can detect (file unreadable, or `bootm` rejecting the image). A kernel that boots part-way then panics on rootfs mount is not U-Boot-visible, so the chain won't catch it — see TROUBLESHOOTING.md.
 
 ## Why single-arg `bootm` and not `bootipq`
 
@@ -38,13 +34,13 @@ We could have done `mmc read` to load a raw image from the partition's start, bu
 
 ## bootargs
 
-The kernel's `chosen.bootargs` is baked into the DTS:
+The **primary** kernel's `chosen.bootargs` (baked into the DTS) is:
 
 ```text
-rootfstype=squashfs,ext4 rootwait noinitrd root=/dev/mmcblk0p7
+rootfstype=squashfs,ext4 rootwait noinitrd root=/dev/mmcblk0p5
 ```
 
-This is what wins for primary boot. For a real recovery slot that mounts `mmcblk0p5` as root, the DTS would need to be either rebuilt with `root=mmcblk0p5`, or modified to leave `chosen.bootargs` empty so U-Boot's env can override. We didn't do that yet — the current `bootmmc` recovery boots the **same kernel** which mounts the **same p7 rootfs**, giving us kernel-slot redundancy but not rootfs redundancy. Worth revisiting if you want true rootfs failover.
+**CORRECTION (2026-09-13):** primary root is **p5** (earlier versions said p7). The **recovery** slot (p3 kernel) is a separate build whose appended DTB sets `root=/dev/mmcblk0p7` and forces a **RAM overlay** with no automatic p5/p6 mounts. The setup therefore now has both kernel-slot **and** rootfs redundancy: p1/p5 primary + p3/p7 recovery.
 
 ## MAC warning at U-Boot
 
@@ -56,8 +52,10 @@ Address in SROM is         00:03:7f:XX:XX:01
 Address in environment is  00:11:32:XX:XX:01
 ```
 
-This is from the legacy U-Boot env `ethaddr` / `eth1addr` being placeholder values that don't match the SROM-stored Atheros OUI MACs. It doesn't matter for OpenWrt — we set the user-visible MACs from `0:vendorpart` in userspace (see HARDWARE.md). The warning is cosmetic. Could be silenced by `setenv ethaddr <SROM-value>` and `saveenv`, but we left it untouched.
+This is from the legacy U-Boot env `ethaddr` / `eth1addr` being placeholder values that don't match the SROM-stored Atheros OUI MACs. It doesn't matter for OpenWrt — we set the user-visible MACs from `0:vendorpart` in userspace (see HARDWARE.md). The warning is cosmetic and left untouched. (Do **not** `saveenv` on this board — see the boot-env correction above.)
 
 ## Saving env
 
-`saveenv` writes to `0:appsblenv` (NAND offset ~0x2a0000–0x2e0000, 256 KiB). Erase + write takes about a second. Visible in the U-Boot output as repeated `Erasing at 0x2aXXXX` lines.
+**CORRECTION (2026-09-13): `saveenv` is unreliable on this board's 2012.07 U-Boot and was found to leave a damaged / non-persisting environment. Repair `0:appsblenv` (mtd9) via Linux NOR writes and re-read to verify; do not use `saveenv` for boot persistence.**
+
+`0:appsblenv` is a 256 KiB partition in **SPI NOR** at offset ~0x2a0000–0x2e0000. Repair it via Linux NOR writes to `mtd9`, not `saveenv` (see the correction above).

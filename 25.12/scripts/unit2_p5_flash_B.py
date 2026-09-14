@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# DEPRECATED (2026-09-13): the saveenv persistence below was found UNRELIABLE on this
+# board 2012.07 U-Boot (leaves a damaged / non-persisting env). Repair 0:appsblenv (mtd9)
+# via Linux NOR writes and re-read to verify instead. Kept for reference only.
+#
 # Phase B: persist bootcmd to boot p1(kernel)/p5(rootfs), fallback to old bootemmc (p3/p7).
 # VERIFY env via printenv BEFORE saveenv. mtd9 backup exists as ultimate restore.
 import os,sys,time,termios,select,socket
@@ -41,6 +45,14 @@ def catch(fd):
                 if b"(IPQ) #" in seen[-400:]: return True
     return b"(IPQ) #" in seen[-400:]
 def main():
+    import sys as _sys
+    _sys.stderr.write(
+        "REFUSING TO RUN: unit2_p5_flash_B.py is disabled.\n"
+        "The saveenv persistence below was found UNRELIABLE/DAMAGING on this board's\n"
+        "2012.07 U-Boot (leaves a damaged / non-persisting env). Repair 0:appsblenv\n"
+        "(mtd9) via Linux NOR writes and re-read to verify instead.\n")
+    _sys.exit(2)
+    # --- original (disabled, kept for reference) ---
     fd=op()
     print("\n[B1] cold boot"); sig("OFF"); time.sleep(4); sig("ON")
     if not catch(fd): print("FAIL:uboot"); sys.exit(2)

@@ -1,0 +1,61 @@
+Subject: mmc: mmci: retain DMA channels after interrupt-time PIO fallback
+
+The residual-FIFO recovery path calls dma_release_channel() from hard IRQ
+context. On IPQ806x BAM this reaches coherent-memory unmapping and a vunmap
+BUG. Disable new DMA requests while retaining channels for post_req cleanup
+and normal device removal. DMA remains enabled until this error occurs.
+
+This is a local candidate, not an upstream-approved patch. Hardware and
+fault-injection validation are recorded separately.
+
+---
+
+diff --git a/drivers/mmc/host/mmci.c b/drivers/mmc/host/mmci.c
+--- a/drivers/mmc/host/mmci.c
++++ b/drivers/mmc/host/mmci.c
+@@ -834,6 +834,7 @@
+ };
+ 
+ struct mmci_dmae_priv {
++	bool disabled;
+ 	struct dma_chan	*cur;
+ 	struct dma_chan	*rx_channel;
+ 	struct dma_chan	*tx_channel;
+@@ -997,8 +998,16 @@
+ 	 * Give up with DMA and switch back to PIO mode.
+ 	 */
+ 	if (status & MCI_RXDATAAVLBLMASK) {
+-		dev_err(mmc_dev(host->mmc), "buggy DMA detected. Taking evasive action.\n");
+-		mmci_dma_release(host);
++		dev_err(mmc_dev(host->mmc),
++			"DMA stalled; using PIO with channels retained until removal\n");
++		/*
++		 * This runs in hard IRQ context. Releasing a DMA channel here
++		 * can free coherent memory and sleep (e.g. Qualcomm BAM).
++		 * Keep the channels until normal device removal, so outstanding
++		 * pre_req mappings can still be unmapped by post_req. Reject
++		 * subsequent DMA preparations and let the PIO path take over.
++		 */
++		WRITE_ONCE(dmae->disabled, true);
+ 	}
+ 
+ 	host->dma_in_progress = false;
+@@ -1089,7 +1098,7 @@
+ 	struct mmci_dmae_priv *dmae = host->dma_priv;
+ 	struct mmci_dmae_next *nd = &dmae->next_data;
+ 
+-	if (!host->use_dma)
++	if (!host->use_dma || READ_ONCE(dmae->disabled))
+ 		return -EINVAL;
+ 
+ 	if (next)
+@@ -1107,6 +1116,9 @@
+ {
+ 	struct mmci_dmae_priv *dmae = host->dma_priv;
+ 	int ret;
++
++	if (READ_ONCE(dmae->disabled))
++		return -EINVAL;
+ 
+ 	host->dma_in_progress = true;
+ 	ret = dma_submit_error(dmaengine_submit(dmae->desc_current));
